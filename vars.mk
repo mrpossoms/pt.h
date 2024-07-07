@@ -3,11 +3,11 @@
 #   |  _/ '_/ _ \| / -_) _|  _|  \ V / _` | '_(_-<
 #   |_| |_| \___// \___\__|\__|   \_/\__,_|_| /__/
 #              |__/                               
-PROJECT=foo
+PROJECT=pt
 TARGET=$(shell ${CC} -dumpmachine)
 
-SRC_OBJS=$(patsubst src/%.c,obj/$(TARGET)/%.c.o,$(wildcard src/*.c))
-INC+=-I./inc
+SRC_OBJS=$(patsubst $(ROOT)/src/%.c,$(ROOT)/obj/$(TARGET)/%.c.o,$(wildcard $(ROOT)/src/*.c))
+INC+=-I$(ROOT)/inc -I $(ROOT)/gitman_sources/xmath.h/inc
 LIB+=
-CFLAGS+=-Wall -g
+CFLAGS+=-Wall -g -std=c++17
 LINK+=-lm

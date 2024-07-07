@@ -1,18 +1,20 @@
-include ../vars.mk
-INC+=-I../inc
-LIB+=-L../lib/$(TARGET)
-LINK+=-l$(PROJECT)
+ROOT=..
+include $(ROOT)/vars.mk
+INC+=-I$(ROOT)/inc
+LIB+=-L$(ROOT)/lib/$(TARGET)
+CFLAGS+=
+LINK+=
 
-TESTS=$(patsubst %.c,bin/%,$(wildcard *.c))
+TESTS=$(patsubst %.cpp,bin/%,$(wildcard *.cpp))
 
-../lib/$(TARGET)/lib$(PROJECT).a:
-	$(MAKE) -C .. static
+$(ROOT)/lib/$(TARGET)/lib$(PROJECT).a:
+	$(MAKE) -C $(ROOT) static
 
-bin: ../lib/$(TARGET)/lib$(PROJECT).a
+bin: $(ROOT)/inc/pt.h #$(ROOT)/lib/$(TARGET)/lib$(PROJECT).a
 	mkdir -p bin
 
-bin/%: %.c bin
-	$(CC) $(CFLAGS) $(LIB) $(INC) $(LIBS) $< -o $@ $(LINK)
+bin/%: %.cpp bin $(ROOT)/inc/pt.h
+	$(CXX) $(CFLAGS) $(LIB) $(INC) $(LIBS) $< -o $@ $(LINK)
 
 .PHONY: test clean 
 test: $(TESTS)

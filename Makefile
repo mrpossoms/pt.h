@@ -1,9 +1,10 @@
-include vars.mk
+ROOT=.
 
+include vars.mk
 
 TESTS+=$(wildcard tests/*.c*)
 SRCS+=$(wildcard src/*.c*)
-HDRS+=$(wildcard inc/*.h)
+HDRS+=$(wildcard inc/*.h*)
 
 
 #    ___  _             _     ___              
@@ -29,7 +30,7 @@ gitman_sources:
 #    \___/|_.__// \___\__|\__| |_|_\\_,_|_\___/__/
 #             |__/                                
 obj/$(TARGET)/%.o: src/% obj/$(TARGET) gitman_sources
-	$(CC) $(CFLAGS) $(INC) $(LIB) -c $< -o $@ $(LINK)
+	$(CXX) $(CFLAGS) $(INC) $(LIB) -c $< -o $@ $(LINK)
 
 #    _    _ _                        ___      _
 #   | |  (_) |__ _ _ __ _ _ _ _  _  | _ \_  _| |___ ___
@@ -40,7 +41,7 @@ lib/$(TARGET)/lib$(PROJECT).a: $(SRC_OBJS)
 	ar -crs $@ $^
 
 lib/$(TARGET)/lib$(PROJECT).so: $(SRC_OBJS)
-	$(CC) -shared -o $@ $^
+	$(CXX) -shared -o $@ $^
 
 #    ___ _             _        
 #   | _ \ |_  ___ _ _ (_)___ ___
