@@ -33,31 +33,47 @@ template<typename S>
 struct Tracer
 {
 
-using vec3 = vec<3,S>;
 using vec2 = vec<2,S>;
+using vec3 = vec<3,S>;
+using vec4 = vec<4,S>;
 using mat4 = mat<4,4,S>;
 
 struct Sample;
 
 // using Material = vec3 (&)(const Sample&);
-typedef vec3 (*Material)(const Sample&);
+typedef vec4 (*Material)(const Sample&);
 
 struct Sample
 {
 	S dist_to_surface;
-	S attenuation;
+	// S attenuation;
 	std::optional<vec3> normal;
 	std::optional<vec3> position;
 	std::optional<vec2> uv;
 	Material material;
 };
 
-typedef S (*SDF)(const vec3&);
+typedef S (*SDF)(const vec3&, void* ctx);
 
-// using Surface = Sample (&)(const vec3& p);
 typedef Sample (*Surface)(const vec3&);
 
-struct Ray { vec3 o; vec3 d; };
+// TODO: this might be better using templates and concepts
+struct Scene
+{
+	virtual S sample_sdf(const vec3& p) = 0;
+
+	virtual Sample sample_surface(const vec3& p) = 0;
+
+	virtual vec3 sample_space(const vec3& p0, const vec3& p1) = 0;
+
+	virtual vec3 sample_light(const Sample& s) = 0;
+};
+
+struct Ray { 
+	vec3 o; vec3 d;
+	void operator +=(S t) { o += d * t; }
+	vec3 position(S t) { return o + d * t; }
+};
 
 struct Sensor
 {
@@ -124,18 +140,18 @@ struct Framebuffer
 	}
 };
 
-static vec3 numerical_normal(SDF sdf, const vec3& p, const S e=0.0001)
+static vec3 numerical_normal(Scene& scene, const vec3& p, const S e=0.0001)
 {
-	auto d0 = sdf(p);
-	auto dx_dd = sdf(p + vec3{e,0,0}) - d0;
-	auto dy_dd = sdf(p + vec3{0,e,0}) - d0;
-	auto dz_dd = sdf(p + vec3{0,0,e}) - d0;
+	auto d0 = scene.sample_sdf(p);
+	auto dx_dd = scene.sample_sdf(p + vec3{e,0,0}) - d0;
+	auto dy_dd = scene.sample_sdf(p + vec3{0,e,0}) - d0;
+	auto dz_dd = scene.sample_sdf(p + vec3{0,0,e}) - d0;
 
 	return vec3{dx_dd, dy_dd, dz_dd}.unit();
 }
 
 template<typename PIX>
-static Framebuffer<PIX> trace(Pinhole& camera, Surface scene, unsigned max_steps=8)
+static Framebuffer<PIX> trace(Pinhole& camera, Scene& scene, unsigned max_steps=256)
 {
 	Framebuffer<PIX> fb(camera.sensor.rows, camera.sensor.cols);
 
@@ -143,38 +159,47 @@ static Framebuffer<PIX> trace(Pinhole& camera, Surface scene, unsigned max_steps
 		S v = r / (S)camera.sensor.rows;
 
 		for (unsigned c = 0; c < camera.sensor.cols; c++) {
-			if (c == camera.sensor.cols >> 1 && r == camera.sensor.rows >> 1) {
-				std::cout << "center\n";
-			}
+			// if (c == camera.sensor.cols >> 1 && r == camera.sensor.rows >> 1) {
+			// 	std::cout << "center\n";
+			// }
 
 			S u = c / (S)camera.sensor.cols;
-			auto ray = camera.ray(u, v);
+			auto ray = camera.ray(1 - u, 1 - v);
 			auto color = vec3{0, 0, 0};
 			S power = (S)1.0;
+			S t = 0.0001;
 
-			for (unsigned i = 0; i < max_steps; i++) {
+			auto p_i_1 = ray.o; // the last sample location
+
+			for (unsigned i = 0; i < max_steps && t < 1000; i++) {
 				if (power < (S)0.00001) { break; }
 
-				auto sample = scene(ray.o);
+				auto p_i = ray.position(t);
+
+				auto sample = scene.sample_surface(p_i);
+
+				t += sample.dist_to_surface;
 
 				// TODO: consider a branchless soln.
 				if (sample.position) {
 					if (sample.normal) {
 						// reflect 
 						ray.o = *sample.position;
-						auto d = ray.d.dot(*sample.normal) * 2;
-						ray.d = ray.d + *sample.normal * d;
+						ray.d = vec3::reflect(ray.d, *sample.normal);
 
 						if (sample.material) {
-							color += sample.material(sample) * power;
-							power *= (1.0 - sample.attenuation);
+							auto mat_samp = sample.material(sample);
+							auto attenuation = std::clamp(mat_samp[3], (S)0, (S)1);
+							color += mat_samp.template slice<3>(0) * scene.sample_light(sample) * power;
+							power *= (1.0 - attenuation);
 						}
 					}
 				}
-				else
-				{
-					ray.o += ray.d * sample.dist_to_surface;
-				}
+				// else
+				// {
+				// 	p_i_1 = ray.o;
+				// 	ray += sample.dist_to_surface;
+				// }
 			}
 
 			// TODO: this should be a constructor for the pixel format

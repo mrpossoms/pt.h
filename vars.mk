@@ -9,5 +9,6 @@ TARGET=$(shell ${CC} -dumpmachine)
 SRC_OBJS=$(patsubst $(ROOT)/src/%.c,$(ROOT)/obj/$(TARGET)/%.c.o,$(wildcard $(ROOT)/src/*.c))
 INC+=-I$(ROOT)/inc -I $(ROOT)/gitman_sources/xmath.h/inc
 LIB+=
-CFLAGS+=-Wall -g -std=c++17
+CFLAGS+=-Wall -g -std=c++17 -O0
+#-ffast-math
 LINK+=-lm
