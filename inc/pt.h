@@ -140,12 +140,13 @@ struct Framebuffer
 	}
 };
 
-static vec3 numerical_normal(Scene& scene, const vec3& p, const S e=0.0001)
+static vec3 numerical_normal(Scene& scene, const S d0, const vec3& p, const S e=0.0001)
 {
-	auto d0 = scene.sample_sdf(p);
 	auto dx_dd = scene.sample_sdf(p + vec3{e,0,0}) - d0;
 	auto dy_dd = scene.sample_sdf(p + vec3{0,e,0}) - d0;
 	auto dz_dd = scene.sample_sdf(p + vec3{0,0,e}) - d0;
+
+	assert(dx_dd != 0 || dy_dd != 0 || dz_dd != 0);
 
 	return vec3{dx_dd, dy_dd, dz_dd}.unit();
 }
@@ -169,6 +170,9 @@ static Framebuffer<PIX> trace(Pinhole& camera, Scene& scene, unsigned max_steps=
 			S power = (S)1.0;
 			S t = 0.0001;
 
+			assert(ray.o.is_finite());
+			assert(ray.d.is_finite());
+
 			auto p_i_1 = ray.o; // the last sample location
 
 			for (unsigned i = 0; i < max_steps && t < 1000; i++) {
@@ -181,20 +185,33 @@ static Framebuffer<PIX> trace(Pinhole& camera, Scene& scene, unsigned max_steps=
 				t += sample.dist_to_surface;
 
 				// TODO: consider a branchless soln.
-				if (sample.position) {
-					if (sample.normal) {
-						// reflect 
-						ray.o = *sample.position;
-						ray.d = vec3::reflect(ray.d, *sample.normal);
+				if (!sample.position || !sample.normal) { continue; }
 
-						if (sample.material) {
-							auto mat_samp = sample.material(sample);
-							auto attenuation = std::clamp(mat_samp[3], (S)0, (S)1);
-							color += mat_samp.template slice<3>(0) * scene.sample_light(sample) * power;
-							power *= (1.0 - attenuation);
-						}
-					}
+				assert(ray.o.is_finite());
+				assert(ray.d.is_finite());
+
+				ray.o = *sample.position;
+				auto candidate_dir = vec3::reflect(ray.d, *sample.normal);
+
+				if (candidate_dir.is_finite())
+				{
+					ray.d = candidate_dir;
 				}
+				else
+				{
+					std::cout << "not finite\n";
+				}
+
+				assert(ray.o.is_finite());
+				assert(ray.d.is_finite());
+
+				if (sample.material) {
+					auto mat_samp = sample.material(sample);
+					auto attenuation = std::clamp(mat_samp[3], (S)0, (S)1);
+					color += mat_samp.template slice<3>(0) * scene.sample_light(sample) * power;
+					power *= (1.0 - attenuation);
+				}
+				
 				// else
 				// {
 				// 	p_i_1 = ray.o;

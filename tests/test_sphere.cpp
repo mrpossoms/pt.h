@@ -33,13 +33,18 @@ inline float plane_sdf(const vec3& p, const vec3& normal, float height)
 
 float box_sdf(const vec3& p, const vec3& o, const vec3& b)
 {
-  vec3 q = (p - o).abs() - b;
-  return q.clamp({0,0,0}, q).magnitude() + std::min(0.f, q.max_component());
+  auto q = (p - o).abs() - b;
+  return q.clamp({0, 0, 0}, q).magnitude() + std::min(q.max_component(),0.f);
 }
 
 vec4 normal_material(const Sample& s)
 {
 	return ((*s.normal + 1) / 2).append<4>({0.5f});
+}
+
+vec4 red(const Sample& s)
+{
+	return {1, 0, 0, 1};
 }
 
 vec3 white(const Sample& s)
@@ -55,6 +60,7 @@ struct SphereScene : public pt::Tracer<float>::Scene
 		vec3 position;
 		vec3 color;
 	} light;
+	float t;
 
 	SphereScene()
 	{
@@ -66,9 +72,15 @@ struct SphereScene : public pt::Tracer<float>::Scene
 
 	virtual float sample_sdf(const vec3& p) override
 	{
-		return std::min(
-			std::min(sphere_sdf(p, sphere.origin, sphere.radius), sphere_sdf(p, {-4, 0, 8}, sphere.radius)),//box_sdf(p, {-4,0,10}, {1, 1, 1})), 
-			plane_sdf(p, plane.normal, plane.height));
+		return 
+			std::min({
+				// sphere_sdf(p, sphere.origin, sphere.radius), 
+				sphere_sdf(p, {4, -5, 10}, sphere.radius),
+				// sphere_sdf(p, {-4, 0, 10 + 5 * sin(t)}, sphere.radius),
+				box_sdf(p, {-4, 0, 10 + 5 * sin(t)}, {1, 1, 1}),
+				// plane_sdf(p, plane.normal, plane.height),
+				plane_sdf(p, {0, 1, 0}, -10),
+			});
 	}
 
 	virtual Sample sample_surface(const vec3& p) override
@@ -82,7 +94,7 @@ struct SphereScene : public pt::Tracer<float>::Scene
 
 		if (dist < 0.001) {
 			position = std::optional<vec3>{ p };
-			normal = std::optional<vec3>{ pt::Tracer<float>::numerical_normal(*this, p) };
+			normal = std::optional<vec3>{ pt::Tracer<float>::numerical_normal(*this, dist, p) };
 			material = normal_material;
 		}
 
@@ -137,5 +149,9 @@ TEST
 
 	pt::Tracer<float>::Pinhole cam(0.01, sensor);
 
-	pt::Tracer<float>::trace<pt::RGB8>(cam, scene).save_as_ppm("/tmp/sphere.ppm");
+	for (unsigned i = 0; i < 20; i++) {
+		scene.t = M_PI * i / 10.f;
+		pt::Tracer<float>::trace<pt::RGB8>(cam, scene).save_as_ppm("/tmp/sphere" + std::to_string(i) + ".ppm");	
+	}
+
 }
