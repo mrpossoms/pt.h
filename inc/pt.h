@@ -14,6 +14,7 @@
 #include <iostream>
 #include <fstream>
 #include <optional>
+#include <assert.h>
 using namespace xmath;
 
 namespace pt
@@ -45,6 +46,7 @@ typedef vec4 (*Material)(const Sample&);
 
 struct Sample
 {
+	S dist_travelled;
 	S dist_to_surface;
 	// S attenuation;
 	std::optional<vec3> normal;
@@ -57,6 +59,25 @@ typedef S (*SDF)(const vec3&, void* ctx);
 
 typedef Sample (*Surface)(const vec3&);
 
+struct sdf 
+{
+	static inline S sphere(const vec3& p, const vec3& origin, S radius)
+	{
+		return (origin - p).magnitude() - radius;
+	}
+
+	static inline S plane(const vec3& p, const vec3& normal, S height)
+	{
+		return p.dot(normal) - height;
+	}
+
+	static S box(const vec3& p, const vec3& o, const vec3& b)
+	{
+	  auto q = (p - o).abs() - b;
+	  return q.clamp({0, 0, 0}, q).magnitude() + std::min(q.max_component(),0.f);
+	}
+};
+
 // TODO: this might be better using templates and concepts
 struct Scene
 {
@@ -64,7 +85,7 @@ struct Scene
 
 	virtual Sample sample_surface(const vec3& p) = 0;
 
-	virtual vec3 sample_space(const vec3& p0, const vec3& p1) = 0;
+	virtual vec3 sample_space(const vec3& p0, const vec3& p1) { return {0, 0, 0}; }
 
 	virtual vec3 sample_light(const Sample& s) = 0;
 };
@@ -99,13 +120,17 @@ struct Pinhole
 	S focal_length;
 	Sensor& sensor;
 	mat4 T_sensor;
+	mat4 T;
 
-	Pinhole(S focal_length, Sensor& sensor, const mat4& T_sensor=mat4::I()) : sensor(sensor), T_sensor(T_sensor)
+	Pinhole() = delete;
+
+	Pinhole(S focal_length, Sensor& sensor, const mat4& T_sensor=mat4::I()) : 
+	sensor(sensor), T_sensor(T_sensor), T(mat4::I())
 	{
-		focal_length = focal_length;
+		this->focal_length = focal_length;
 	}
 
-	Ray ray(S u, S v, const mat4& T=mat4::I())
+	Ray ray(S u, S v)
 	{
 		auto pp_0 = sensor.plane_point(u, v);
 		auto pp_w = T_sensor * pp_0 + vec3{0, 0, -focal_length}; // point on the plane in global coords
@@ -151,6 +176,29 @@ static vec3 numerical_normal(Scene& scene, const S d0, const vec3& p, const S e=
 	return vec3{dx_dd, dy_dd, dz_dd}.unit();
 }
 
+static float sample_light_power(Scene& scene, const Sample& s, const vec3& light_pos, S light_area, unsigned max_steps=256)
+{
+	const auto k = light_area;
+	auto p = *s.position;
+	auto dir = (light_pos - p).unit();
+	Ray r = { .o = p, .d = dir };
+	float t = 0;
+	float res = 1;
+
+	for (unsigned i = 0; i < max_steps && t < 1000; i++) {
+		auto sample = scene.sample_surface(r.position(t));
+		t += abs(sample.dist_to_surface);
+
+		if (i > 0 && sample.dist_to_surface < std::numeric_limits<float>::epsilon()) {
+			return 0;
+		}
+		res = std::min(res, k * sample.dist_to_surface / t);
+	}
+
+	return res;
+}
+
+
 template<typename PIX>
 static Framebuffer<PIX> trace(Pinhole& camera, Scene& scene, unsigned max_steps=256)
 {
@@ -175,48 +223,33 @@ static Framebuffer<PIX> trace(Pinhole& camera, Scene& scene, unsigned max_steps=
 
 			auto p_i_1 = ray.o; // the last sample location
 
+			// TODO: max distance should probably be computed as a function of the camera characteristics
+			// the focal length and sensor size. Use these to determine the distance at which a M^2 area
+			// projects into a single pixel.
 			for (unsigned i = 0; i < max_steps && t < 1000; i++) {
 				if (power < (S)0.00001) { break; }
 
 				auto p_i = ray.position(t);
 
 				auto sample = scene.sample_surface(p_i);
+				sample.dist_travelled = t;
 
 				t += sample.dist_to_surface;
 
 				// TODO: consider a branchless soln.
 				if (!sample.position || !sample.normal) { continue; }
 
-				assert(ray.o.is_finite());
-				assert(ray.d.is_finite());
-
-				ray.o = *sample.position;
-				auto candidate_dir = vec3::reflect(ray.d, *sample.normal);
-
-				if (candidate_dir.is_finite())
-				{
-					ray.d = candidate_dir;
-				}
-				else
-				{
-					std::cout << "not finite\n";
-				}
-
-				assert(ray.o.is_finite());
-				assert(ray.d.is_finite());
+				// ray.o = *sample.position;
+				// ray.d = vec3::reflect(ray.d, *sample.normal);
 
 				if (sample.material) {
 					auto mat_samp = sample.material(sample);
 					auto attenuation = std::clamp(mat_samp[3], (S)0, (S)1);
 					color += mat_samp.template slice<3>(0) * scene.sample_light(sample) * power;
 					power *= (1.0 - attenuation);
+					// color += mat_samp.template slice<3>(0);
+					// break;
 				}
-				
-				// else
-				// {
-				// 	p_i_1 = ray.o;
-				// 	ray += sample.dist_to_surface;
-				// }
 			}
 
 			// TODO: this should be a constructor for the pixel format

@@ -1,86 +1,67 @@
-#include ".test.h"
+// #include ".test.h"
 #include "pt.h"
 #include <optional>
+#include <assert.h>
 
 using vec3 = pt::Tracer<float>::vec3;
 using vec4 = pt::Tracer<float>::vec4;
+using mat4 = pt::Tracer<float>::mat4;
 using Ray = pt::Tracer<float>::Ray;
 using Sample = pt::Tracer<float>::Sample;
 using Material = pt::Tracer<float>::Material;
-// using num_norm = pt::Tracer<float>::numerical_normal;
+using sdf = pt::Tracer<float>::sdf;
 
-struct Sphere
+inline vec3 normal_color(const Sample& s)
 {
-	vec3 origin;
-	float radius;
-};
-
-struct Plane
-{
-	float height = -5;
-	vec3 normal = {0,1,0};
-};
-
-inline float sphere_sdf(const vec3& p, const vec3& origin, float radius)
-{
-	return (origin - p).magnitude() - radius;
-}
-
-inline float plane_sdf(const vec3& p, const vec3& normal, float height)
-{
-	return p.dot(normal) - height;
-}
-
-float box_sdf(const vec3& p, const vec3& o, const vec3& b)
-{
-  auto q = (p - o).abs() - b;
-  return q.clamp({0, 0, 0}, q).magnitude() + std::min(q.max_component(),0.f);
+	return ((*s.normal + 1) / 2);
 }
 
 vec4 normal_material(const Sample& s)
 {
-	return ((*s.normal + 1) / 2).append<4>({0.5f});
+	return normal_color(s).append<4>({1.f});
 }
 
-vec4 red(const Sample& s)
+vec4 band_material(const Sample& s)
 {
-	return {1, 0, 0, 1};
+	auto p = (cos((*s.position)[2]) + 1.f) * 0.5f;
+	// return normal_material
+	return vec4{0.25f, 0.25f, 0.25f, 1.f}.lerp({0.75f, 0.75f, 0.75f, 1.f}, p);
 }
 
-vec3 white(const Sample& s)
+vec4 checker_material(const Sample& s)
 {
-	return {1, 1, 1};
+	auto p = *s.position;
+	auto r = p.round().abs();
+	// static const auto white = vec4{1, 1, 1, 1};
+	// static const auto black = vec4{0, 0, 0, 1};
+
+	auto w = fmodf(r[0] + r[1] + r[2], 2.f);
+	w = std::clamp(w, 0.25f, 1.f);
+
+	return (normal_color(s) * w).append<4>({1.f});
+
+	// return (int)(r[0] + r[1] + r[2]) % 2 == 0 ? white : black;
 }
 
 struct SphereScene : public pt::Tracer<float>::Scene
 {
-	Sphere sphere;
-	Plane plane;
 	struct {
 		vec3 position;
 		vec3 color;
 	} light;
-	float t;
 
 	SphereScene()
 	{
-		sphere.origin = {4, -5, 10};
-		sphere.radius = 2.5;
 		light.position = {0, 100, 10};
-		light.color = { 1, 0.5, 0.5 };
+		light.color = { 1, 1, 1 };
 	}
 
 	virtual float sample_sdf(const vec3& p) override
 	{
-		return 
-			std::min({
-				// sphere_sdf(p, sphere.origin, sphere.radius), 
-				sphere_sdf(p, {4, -5, 10}, sphere.radius),
-				// sphere_sdf(p, {-4, 0, 10 + 5 * sin(t)}, sphere.radius),
-				box_sdf(p, {-4, 0, 10 + 5 * sin(t)}, {1, 1, 1}),
-				// plane_sdf(p, plane.normal, plane.height),
-				plane_sdf(p, {0, 1, 0}, -10),
-			});
+		return std::min({ 
+			sdf::sphere(p, {0, 0, 0}, 2.5f),
+			sdf::plane(p, {0, 1, 0}, -10),
+		});
 	}
 
 	virtual Sample sample_surface(const vec3& p) override
@@ -95,7 +76,7 @@ struct SphereScene : public pt::Tracer<float>::Scene
 		if (dist < 0.001) {
 			position = std::optional<vec3>{ p };
 			normal = std::optional<vec3>{ pt::Tracer<float>::numerical_normal(*this, dist, p) };
-			material = normal_material;
+			material = checker_material;
 		}
 
 		return Sample{
@@ -108,33 +89,12 @@ struct SphereScene : public pt::Tracer<float>::Scene
 
 	virtual vec3 sample_light(const Sample& s) override
 	{
-		const auto k = 4;
-		auto p = *s.position;
-		auto dir = (light.position - p).unit();
-		Ray r = { .o = p, .d = dir };
-		float t = 0;
-		float res = 1;
-
-		for (unsigned i = 0; i < 128 && t < 1000; i++) {
-			auto sample = sample_surface(r.position(t));
-			t += abs(sample.dist_to_surface);
-
-			if (i > 0 && sample.dist_to_surface < std::numeric_limits<float>::epsilon()) {
-				return {0, 0, 0};
-			}
-			res = std::min(res, k * sample.dist_to_surface / t);
-		}
-
-		return light.color *  res;
-	}
-
-	virtual vec3 sample_space(const vec3& p0, const vec3& p1) override
-	{
-		return {0, 0, 0};
+		return light.color *  pt::Tracer<float>::sample_light_power(*this, s, light.position, 8);
 	}
 };
 
-TEST
+// TEST
+int main(int argc, const char* argv[])
 {
 	pt::Tracer<float>::Sensor sensor = {
 		.corners = {
@@ -147,11 +107,24 @@ TEST
 
 	SphereScene scene;
 
-	pt::Tracer<float>::Pinhole cam(0.01, sensor);
+	pt::Tracer<float>::Pinhole cam(0.001, sensor);
+	for (int i = 0; i < 30; i++)
+	{
+		float t = M_PI * 2 * i / 30.f;
 
-	for (unsigned i = 0; i < 20; i++) {
-		scene.t = M_PI * i / 10.f;
-		pt::Tracer<float>::trace<pt::RGB8>(cam, scene).save_as_ppm("/tmp/sphere" + std::to_string(i) + ".ppm");	
+		vec3 p = {10 * cos(t), 4, 10 * sin(t)};
+		vec3 d = -p.unit();
+		vec3 r = vec3::cross({0, -1, 0}, d).unit();
+
+		cam.T = mat4{
+			{r[0], 0, d[0], p[0]},
+			{r[1], 1, d[1], p[1]},
+			{r[2], 0, d[2], p[2]},
+			{0, 0, 0, 1},
+		};
+
+		pt::Tracer<float>::trace<pt::RGB8>(cam, scene).save_as_ppm("/tmp/seq_sphere" + std::to_string(i) + ".ppm");			
 	}
+
 
 }
