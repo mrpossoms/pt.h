@@ -15,6 +15,8 @@
 #include <fstream>
 #include <optional>
 #include <assert.h>
+#include <cstdint>
+
 using namespace xmath;
 
 namespace pt
@@ -181,8 +183,9 @@ static float sample_light_power(Scene& scene, const Sample& s, const vec3& light
 	const auto k = light_area;
 	auto p = *s.position;
 	auto dir = (light_pos - p).unit();
+
 	Ray r = { .o = p, .d = dir };
-	float t = 0;
+	float t = 0.001f;
 	float res = 1;
 
 	for (unsigned i = 0; i < max_steps && t < 1000; i++) {
@@ -208,10 +211,6 @@ static Framebuffer<PIX> trace(Pinhole& camera, Scene& scene, unsigned max_steps=
 		S v = r / (S)camera.sensor.rows;
 
 		for (unsigned c = 0; c < camera.sensor.cols; c++) {
-			// if (c == camera.sensor.cols >> 1 && r == camera.sensor.rows >> 1) {
-			// 	std::cout << "center\n";
-			// }
-
 			S u = c / (S)camera.sensor.cols;
 			auto ray = camera.ray(1 - u, 1 - v);
 			auto color = vec3{0, 0, 0};
@@ -239,16 +238,20 @@ static Framebuffer<PIX> trace(Pinhole& camera, Scene& scene, unsigned max_steps=
 				// TODO: consider a branchless soln.
 				if (!sample.position || !sample.normal) { continue; }
 
-				// ray.o = *sample.position;
-				// ray.d = vec3::reflect(ray.d, *sample.normal);
+				ray.o = *sample.position;
+				ray.d = vec3::reflect(ray.d, *sample.normal);
 
 				if (sample.material) {
+					// if the sample is inside the surface, move it to the surface
+					if (sample.dist_to_surface < 0) {
+						*sample.position += *sample.normal * -sample.dist_to_surface;
+						sample.dist_to_surface = 0;
+					}
+
 					auto mat_samp = sample.material(sample);
 					auto attenuation = std::clamp(mat_samp[3], (S)0, (S)1);
 					color += mat_samp.template slice<3>(0) * scene.sample_light(sample) * power;
 					power *= (1.0 - attenuation);
-					// color += mat_samp.template slice<3>(0);
-					// break;
 				}
 			}
 

@@ -76,3 +76,4 @@ deps-update:
 
 clean:
 	rm -rf obj lib docs
+	make -C tests clean
