@@ -160,10 +160,17 @@ struct Framebuffer
 
 	inline PIX* operator[](size_t r) { return buffer.data() + (cols * r); }
 
-	void save_as_ppm(const std::string& path, unsigned max_val=255) {
+	std::ofstream save_as_ppm(const std::string& path, unsigned max_val=255) {
 		std::ofstream stream(path, std::ios::binary);
 		stream << "P6\n" << cols << " " << rows << "\n" << max_val << "\n";
 		stream.write((const char*)(buffer.data()), sizeof(PIX) * cols * rows);
+		return stream;
+	}
+
+	template<typename F>
+	void save_as_ppm_with_footer(const std::string& path, const F& footer, unsigned max_val=255) {
+		auto stream = save_as_ppm(path, max_val);
+		stream.write((const char*)&footer, sizeof(F));
 	}
 };
 

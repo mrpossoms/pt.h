@@ -93,6 +93,11 @@ struct SphereScene : public pt::Tracer<float>::Scene
 	}
 };
 
+struct TestFooter
+{
+	char msg[16];
+};
+
 // TEST
 int main(int argc, const char* argv[])
 {
@@ -108,7 +113,7 @@ int main(int argc, const char* argv[])
 	SphereScene scene;
 
 	pt::Tracer<float>::Pinhole cam(0.001, sensor);
-	for (int i = 0; i < 30; i++)
+	for (int i = 0; i < 1; i++)
 	{
 		float t = M_PI * 2 * i / 30.f;
 
@@ -123,7 +128,8 @@ int main(int argc, const char* argv[])
 			{0, 0, 0, 1},
 		};
 
-		pt::Tracer<float>::trace<pt::RGB8>(cam, scene).save_as_ppm("/tmp/seq_sphere" + std::to_string(i) + ".ppm");			
+		pt::Tracer<float>::trace<pt::RGB8>(cam, scene)
+		.save_as_ppm_with_footer<TestFooter>("/tmp/seq_sphere" + std::to_string(i) + ".ppm", TestFooter{ "hello world" });
 	}
 
 
